@@ -1,0 +1,7 @@
+env/
+__pycache__/
+data/raw/
+*.wav
+*.mp3
+*.flac
+.vscode/
