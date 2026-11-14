@@ -5,14 +5,14 @@
 Proyek ini digunakan untuk melakukan analisis sinyal audio suara burung menggunakan Python. Analisis meliputi ekstraksi fitur akustik, pengolahan sinyal, visualisasi data, serta analisis statistik untuk membandingkan karakteristik suara antar sampel.
 
 ## Fitur
-'''
+
 - Membaca file audio (.wav)
 - Ekstraksi fitur akustik menggunakan Librosa
 - Visualisasi waveform dan spectrogram
 - Analisis statistik menggunakan SciPy dan Scikit\-Posthocs
 - Visualisasi hasil dengan Matplotlib dan Seaborn
 - Monitoring proses menggunakan TQDM
-'''
+
 ## Struktur Proyek
 
 akustik\_burung/
@@ -21,21 +21,31 @@ akustik\_burung/
 
 ├── data/
 
-│   ├── audio/
+│   ├── metadata/
 
-│   └── hasil/
+│   └── processed_features/
+
+|   |__ raw/
+
+│
+
+│   |__ outputs/
+
+│   |── figures
+
+│   |── tables
 
 │
 
 ├── src/
 
-│   ├── preprocessing.py
+│   ├── preprocess.py
 
-│   ├── feature\_extraction.py
+│   ├── features.py
 
-│   ├── analysis.py
+│   ├── dataset.py
 
-│   └── visualization.py
+│   └── config.py
 
 │
 
@@ -43,7 +53,7 @@ akustik\_burung/
 
 ├── README.md
 
-└── main.py
+└── run_pipeline.py
 
 ## Persyaratan
 
@@ -51,30 +61,33 @@ akustik\_burung/
 
 ## Membuat Virtual Environment
 
-'''
-Windows:
 
-py \-3.11 \-m venv env
+Windows:
+```
+py \-3.11 \-m venv env / py -m venv env 
 
 env\\Scripts\\activate
-'''
+
+```
 
 ## Instalasi Dependensi
-'''
+```
 
 pip install \-r requirements.txt
+```
 
 atau
-
+```
 pip install numpy pandas scipy librosa soundfile scikit\-learn scikit\-posthocs matplotlib seaborn tqdm
-'''
+```
 
 ## Menjalankan Program
-'''
 
+```
 python3 run_pipeline.py
 
-'''
+```
+
 ## Library yang Digunakan
 
 - NumPy
