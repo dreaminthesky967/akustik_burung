@@ -1,7 +1,35 @@
+# Lingkungan virtual Python
 env/
+.venv/
+venv/
+
+# Cache Python
 __pycache__/
+*.py[cod]
+*.pyc
+*.pyd
+*.pyo
+
+
+# Dataset dan data hasil olahan (tetap simpan metadata yang diperlukan)
 data/raw/
-*.wav
-*.mp3
-*.flac
-.vscode/
+# File hasil (tidak di-commit, dibuat ulang oleh pipeline)
+data/interim/
+data/processed_features/
+results/
+
+# Data mentah besar (unduh sendiri dari Mendeley)
+
+# Log dan kunci versi
+*.log
+requirements.lock.txt
+
+# Sistem operasi
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/settings.json
+.idea/
+*.code-workspace

@@ -1,0 +1,5 @@
+window,mainlobe_bins,peak_sidelobe_db
+rect,2.0,-13.26
+hann,4.0,-31.47
+hamming,4.0,-42.66
+blackman,6.0,-58.11

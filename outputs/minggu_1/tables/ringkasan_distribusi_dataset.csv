@@ -1,0 +1,8 @@
+label,sr,jumlah_klip,durasi_rata2_dtk,durasi_min_dtk,durasi_max_dtk
+common_waxbill,32000,601,3.0000981697171385,3.0,3.0001
+noise,44100,1591,5.0,5.0,5.0
+other_birds,48000,1999,3.000056228114057,3.0,3.0001
+redbilledquelea,32000,992,3.0000990927419355,3.0,3.0001
+villageweaver,32000,854,3.000098946135832,3.0,3.0001
+villageweaver,44100,1,3.0,3.0,3.0
+yellow_fronted_canary,32000,731,2.8143150478796173,0.6874,3.0001

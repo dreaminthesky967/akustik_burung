@@ -1,83 +1,170 @@
 """
-fitur STFT, Mel-Spectrogram (64 band), dan MFCC  
+Praproses sinyal dan ekstraksi fitur MFCC untuk 16 konfigurasi window STFT.
+
+Desain eksperimen:
+    4 jenis window  : rectangular, Hann, Hamming, Blackman
+    4 ukuran window : 256, 512, 1024, 2048 sampel
+    Total           : 4 × 4 = 16 konfigurasi (tanpa duplikasi / overlap)
+    Overlap tetap   : 50% untuk semua konfigurasi
+    Baseline        : hann_N2048_ov50 (default librosa), sudah termasuk
+                      dalam 16 konfigurasi grid
+
+Modul ini hanya berisi fungsi murni (tanpa side-effect I/O) agar
+bisa dipanggil paralel dari week1_build_features.py.
 """
 
+from __future__ import annotations
+
 import time
-from typing import Tuple
-import numpy as np
-import pandas as pd
+from dataclasses import dataclass
+
 import librosa
+import numpy as np
+from scipy.signal import butter, sosfiltfilt, lfilter
 
-from src.config import CONFIG, TABLE_DIR
+# ------------------------------------------------------------------ konstanta
+TARGET_SR  : int = 22_050       # sample rate kerja (Hz)
+N_MFCC     : int = 13           # jumlah koefisien MFCC
+N_MELS     : int = 40           # jumlah filter mel (aman untuk N ≥ 256)
+FEATURE_DIM: int = N_MFCC * 4   # (mean, std) × (MFCC, Δ-MFCC) = 52
 
-
-def save_stft_resolution_table(fs: int = CONFIG.target_fs) -> pd.DataFrame:
-    """Menghitung dan menyimpan tabel trade-off resolusi frekuensi (df) dan waktu (dt)."""
-    rows = []
-    for n_fft in CONFIG.window_sizes:
-        df_hz = fs / n_fft
-        dt_ms = (n_fft / fs) * 1000.0
-        rows.append({
-            "ukuran_window_N": n_fft,
-            "sample_rate_hz": fs,
-            "delta_f_hz": round(df_hz, 2),
-            "delta_t_ms": round(dt_ms, 2),
-            "hop_50_sampel": n_fft // 2,
-            "hop_75_sampel": n_fft // 4,
-        })
-
-    df_res = pd.DataFrame(rows)
-    out_csv = TABLE_DIR / "minggu1_tabel_resolusi_stft.csv"
-    df_res.to_csv(out_csv, index=False)
-    print("\n=== TABEL TRADE-OFF RESOLUSI STFT (Delta f vs Delta t) ===")
-    print(df_res.to_string(index=False))
-    return df_res
+# Pemetaan nama pendek → nama librosa/scipy
+WINDOWS: dict[str, str] = {
+    "rect"    : "boxcar",
+    "hann"    : "hann",
+    "hamming" : "hamming",
+    "blackman": "blackman",
+}
+SIZES: tuple[int, ...] = (256, 512, 1024, 2048)
 
 
-def extract_features_single_clip(
-    waveform: np.ndarray,
-    n_fft: int = 1024,
-    hop_length: int = 512,
-    window_type: str = "hann",
-    fs: int = CONFIG.target_fs,
-) -> Tuple[np.ndarray, np.ndarray, float]:
+# ================================================================== konfigurasi
+
+@dataclass(frozen=True)
+class KonfigurasiWindow:
     """
-    Mengekstraksi fitur dari sinyal audio yang telah dipraproses:
-    1. STFT dengan ukuran N dan jenis window tertentu.
-    2. Mel-Spectrogram 64 band pada pita 1-10 kHz.
-    3. MFCC 13 koefisien + Delta-MFCC, diringkas menjadi mean & std (52 fitur).
+    Satu konfigurasi STFT: jenis window, ukuran N, dan overlap.
+
+    Contoh penamaan: hann_N1024_ov50
     """
-    t_start = time.perf_counter()
 
-    # 1. STFT
-    stft_spec = librosa.stft(
-        waveform, n_fft=n_fft, hop_length=hop_length, win_length=n_fft, window=window_type
+    window : str          # kunci di WINDOWS (rect/hann/hamming/blackman)
+    n      : int          # ukuran window dalam sampel
+    overlap: float = 0.5  # 50% overlap untuk semua konfigurasi
+
+    @property
+    def hop(self) -> int:
+        """Jarak antar frame dalam sampel."""
+        return int(self.n * (1 - self.overlap))
+
+    @property
+    def nama(self) -> str:
+        """Identifier unik, dipakai sebagai kunci di file .npz dan kolom CSV."""
+        return f"{self.window}_N{self.n}_ov{int(self.overlap * 100)}"
+
+
+# 16 konfigurasi = 4 window × 4 ukuran (tanpa duplikasi)
+CONFIGS = [KonfigurasiWindow(w, n) for w in WINDOWS for n in SIZES]
+
+# Baseline: hann_N2048_ov50 (default librosa), sudah ada di dalam CONFIGS
+BASELINE = next(c for c in CONFIGS if c.window == "hann" and c.n == 2048)
+
+# Verifikasi: harus tepat 16 konfigurasi, tidak ada nama yang sama
+assert len(CONFIGS) == 16, f"Harus 16 konfigurasi, bukan {len(CONFIGS)}"
+assert len({c.nama for c in CONFIGS}) == 16, "Ada nama konfigurasi duplikat!"
+
+
+# ================================================================== praproses
+
+def praproses(y: np.ndarray, sr: int, bandpass: bool = True) -> np.ndarray:
+    """
+    Terapkan pre-emphasis lalu (opsional) filter bandpass 1–10 kHz.
+
+    Parameters
+    ----------
+    y       : sinyal mono float32
+    sr      : sample rate sinyal masukan (harus == TARGET_SR)
+    bandpass: jika True, terapkan Butterworth orde 4 zero-phase
+
+    Returns
+    -------
+    np.ndarray float32
+    """
+    # Pre-emphasis: y[n] = x[n] − 0,97·x[n−1]
+    y = lfilter([1.0, -0.97], [1.0], y)
+
+    if bandpass:
+        sos = butter(4, [1_000, 10_000], btype="band", fs=sr, output="sos")
+        y   = sosfiltfilt(sos, y)   # zero-phase: tidak menggeser fase
+
+    return y.astype(np.float32)
+
+
+# ================================================================== fitur
+
+def hitung_mfcc_statistik(y: np.ndarray, cfg: KonfigurasiWindow) -> np.ndarray:
+    """
+    Hitung MFCC 13 + Δ-MFCC, lalu rangkum dengan (mean, std) sepanjang waktu.
+
+    Returns
+    -------
+    np.ndarray shape (FEATURE_DIM,) = (52,)
+    """
+    mfcc = librosa.feature.mfcc(
+        y          = y,
+        sr         = TARGET_SR,
+        n_mfcc     = N_MFCC,
+        n_fft      = cfg.n,
+        hop_length = cfg.hop,
+        window     = WINDOWS[cfg.window],
+        n_mels     = N_MELS,
     )
-    power_spec = np.abs(stft_spec) ** 2
-
-    # 2. Mel-Spectrogram (64 band)
-    mel_spec = librosa.feature.melspectrogram(
-        S=power_spec,
-        sr=fs,
-        n_fft=n_fft,
-        hop_length=hop_length,
-        n_mels=CONFIG.n_mels,
-        fmin=CONFIG.lowcut_hz,
-        fmax=CONFIG.highcut_hz,
+    assert mfcc.shape[1] >= 9, (
+        f"Terlalu sedikit frame ({mfcc.shape[1]}) untuk delta (butuh ≥9)"
     )
-    log_mel_spec = librosa.power_to_db(mel_spec, ref=np.max)
+    delta = librosa.feature.delta(mfcc, width=9, mode="nearest")
 
-    # 3. MFCC (13 koefisien) + Delta-MFCC
-    mfcc = librosa.feature.mfcc(S=log_mel_spec, sr=fs, n_mfcc=CONFIG.n_mfcc)
-    delta_mfcc = librosa.feature.delta(mfcc)
+    return np.concatenate([
+        mfcc.mean(axis=1),
+        mfcc.std(axis=1),
+        delta.mean(axis=1),
+        delta.std(axis=1),
+    ])
 
-    # 4. Vektor fitur statistik per klip (Mean & Std sepanjang waktu = 52 dimensi)
-    feature_vector = np.concatenate([
-        np.mean(mfcc, axis=1),
-        np.std(mfcc, axis=1),
-        np.mean(delta_mfcc, axis=1),
-        np.std(delta_mfcc, axis=1),
-    ]).astype(np.float32)
 
-    elapsed_ms = (time.perf_counter() - t_start) * 1000.0
-    return feature_vector, log_mel_spec, elapsed_ms
+def ekstrak_satu_klip(path: str, bandpass: bool = True) -> dict[str, np.ndarray]:
+    """
+    Muat, praproses, lalu hitung fitur untuk SEMUA 16 konfigurasi.
+
+    Audio hanya dimuat dan dipraproses SEKALI, menghemat I/O disk.
+
+    Returns
+    -------
+    dict  {cfg.nama: np.ndarray shape (52,)}  —  16 entri
+    """
+    y, _ = librosa.load(path, sr=TARGET_SR, mono=True)
+    y    = praproses(y, TARGET_SR, bandpass)
+    return {cfg.nama: hitung_mfcc_statistik(y, cfg) for cfg in CONFIGS}
+
+
+def ukur_waktu_ekstraksi(paths: list[str], n_klip: int = 200) -> dict[str, float]:
+    """
+    Ukur waktu ekstraksi (ms/klip) tiap konfigurasi.
+
+    Dijalankan pada SATU proses agar tidak bias dari paralelisme.
+
+    Returns
+    -------
+    dict  {cfg.nama: ms_per_klip}  —  16 entri
+    """
+    sinyal = [
+        praproses(librosa.load(p, sr=TARGET_SR)[0], TARGET_SR)
+        for p in paths[:n_klip]
+    ]
+    hasil = {}
+    for cfg in CONFIGS:
+        t0 = time.perf_counter()
+        for y in sinyal:
+            hitung_mfcc_statistik(y, cfg)
+        hasil[cfg.nama] = 1000 * (time.perf_counter() - t0) / len(sinyal)
+    return hasil
